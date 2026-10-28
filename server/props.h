@@ -1,0 +1,558 @@
+//========= Copyright © 1996-2005, Valve Corporation, All rights reserved. ============//
+//
+// Purpose: 
+//
+// $NoKeywords: $
+//=============================================================================//
+#ifndef PROPS_H
+#define PROPS_H
+#ifdef _WIN32
+#pragma once
+#endif
+
+#include "props_shared.h"
+#include "baseanimating.h"
+#include "physics_bone_follower.h"
+#include "player_pickup.h"
+#include "positionwatcher.h"
+#include "nav_mesh.h"
+
+//=============================================================================================================
+// PROP TYPES
+//=============================================================================================================
+//-----------------------------------------------------------------------------
+// Purpose: 
+//-----------------------------------------------------------------------------
+class CBaseProp : public CBaseAnimating
+{
+	DECLARE_CLASS( CBaseProp, CBaseAnimating );
+public:
+
+	void Spawn( void );
+	void Precache( void );
+	void Activate( void );
+	bool KeyValue( const char *szKeyName, const char *szValue );
+	void CalculateBlockLOS( void );
+	int  ParsePropData( void );
+	
+	void DrawDebugGeometryOverlays( void );
+
+	void ForceStartGlowing( void );
+	void ForceStopGlowing( void );
+	void SetGlowOverrideColor( const Vector &cGlowCol );
+	void SetGlowRange( const int nRange );
+
+	// Don't treat as a live target
+	virtual bool IsAlive( void ) { return false; }
+	virtual bool OverridePropdata() { return true; }
+};
+
+
+//-----------------------------------------------------------------------------
+// Purpose: 
+//-----------------------------------------------------------------------------
+class CBreakableProp : public CBaseProp, public IBreakableWithPropData, public CDefaultPlayerPickupVPhysics
+{
+public:
+	CBreakableProp();
+
+	DECLARE_CLASS( CBreakableProp, CBaseProp );
+	DECLARE_SERVERCLASS();
+	DECLARE_DATADESC();
+
+	virtual void Spawn();
+	virtual void Precache();
+	virtual float GetAutoAimRadius() { return 24.0f; }
+	virtual void UpdateOnRemove();
+
+	void BreakablePropTouch( CBaseEntity *pOther );
+
+	virtual int OnTakeDamage( const CTakeDamageInfo &info );
+	void Event_Killed( const CTakeDamageInfo &info );
+	void Break( CBaseEntity *pBreaker, const CTakeDamageInfo &info );
+	void BreakThink( void );
+	void AnimateThink( void );
+
+	virtual unsigned int PhysicsSolidMaskForEntity( void ) const
+	{
+		if ( m_noGhostCollision )
+		{
+			return BaseClass::PhysicsSolidMaskForEntity() | CONTENTS_IGNORE_GHOSTS;
+		}
+
+		return BaseClass::PhysicsSolidMaskForEntity();
+	}
+
+	virtual void PlayPuntSound();
+
+	void InputBreak( inputdata_t &inputdata );
+	void InputAddHealth( inputdata_t &inputdata );
+	void InputRemoveHealth( inputdata_t &inputdata );
+	void InputSetHealth( inputdata_t &inputdata );
+
+	int	 GetNumBreakableChunks( void ) { return m_iNumBreakableChunks; }
+
+	virtual bool OverridePropdata() { return false; }
+	virtual IPhysicsObject *GetRootPhysicsObjectForBreak();
+
+	bool PropDataOverrodeBlockLOS( void ) { return m_bBlockLOSSetByPropData; }
+	bool PropDataOverrodeAIWalkable( void ) { return m_bIsWalkableSetByPropData; }
+
+	virtual bool   HasPreferredCarryAnglesForPlayer( CBasePlayer *pPlayer )
+	{
+		if ( HasInteraction( PROPINTER_PHYSGUN_LAUNCH_SPIN_Z ) )
+			return true;
+
+		return false; 
+	}
+
+	virtual QAngle PreferredCarryAngles( void ) { return m_preferredCarryAngles; }
+
+	virtual void Ignite( float flFlameLifetime, bool bNPCOnly, float flSize = 0.0f, bool bCalledByLevelDesigner = false );
+
+	// Specific interactions
+	void	HandleFirstCollisionInteractions( int index, gamevcollisionevent_t *pEvent );
+	void	HandleInteractionStick( int index, gamevcollisionevent_t *pEvent );
+	void	StickAtPosition( const Vector &stickPosition, const Vector &savePosition, const QAngle &saveAngles );
+	
+	// Disable auto fading under dx7 or when level fades are specified
+	void	DisableAutoFade();
+
+public:
+	COutputEvent	m_OnBreak;
+	COutputFloat	m_OnHealthChanged;
+	COutputEvent	m_OnTakeDamage;
+
+	float			m_impactEnergyScale;
+
+	int				m_iMinHealthDmg;
+
+	QAngle			m_preferredCarryAngles;
+
+public:
+// IBreakableWithPropData
+	void			SetDmgModBullet( float flDmgMod ) { m_flDmgModBullet = flDmgMod; }
+	void			SetDmgModClub( float flDmgMod ) { m_flDmgModClub = flDmgMod; }
+	void			SetDmgModExplosive( float flDmgMod ) { m_flDmgModExplosive = flDmgMod; }
+	void			SetDmgModFire( float flDmgMod ) { m_flDmgModFire = flDmgMod; }
+	float			GetDmgModBullet( void ) { return m_flDmgModBullet; }
+	float			GetDmgModClub( void ) { return m_flDmgModClub; }
+	float			GetDmgModExplosive( void ) { return m_flDmgModExplosive; }
+	float			GetDmgModFire( void ) { return m_flDmgModFire; }
+	void			SetExplosiveRadius( float flRadius ) { m_explodeRadius = flRadius; }
+	void			SetExplosiveDamage( float flDamage ) { m_explodeDamage = flDamage; }
+	float			GetExplosiveRadius( void ) { return m_explodeRadius; }
+	float			GetExplosiveDamage( void ) { return m_explodeDamage; }
+	void			SetExplosionType( explosion_t type ) { m_explosionType = type; }	// TERROR
+	explosion_t		GetExplosionType( void ) { return m_explosionType; }				// TERROR
+	void			SetExplosionDelay( float delay ) { m_explosionDelay = delay; }
+	float			GetExplosionDelay( void ) { return m_explosionDelay; }
+	void			SetExplosionBuildupSound( string_t sound ) { m_explosionBuildupSound = sound; }
+	string_t		GetExplosionBuildupSound( void ) { return m_explosionBuildupSound; }
+	void			SetPhysicsDamageTable( string_t iszTableName ) { m_iszPhysicsDamageTableName = iszTableName; }
+	string_t		GetPhysicsDamageTable( void ) { return m_iszPhysicsDamageTableName; }
+	void			SetBreakableModel( string_t iszModel ) { m_iszBreakableModel = iszModel; }
+	string_t 		GetBreakableModel( void ) { return m_iszBreakableModel; }
+	void			SetBreakableSkin( int iSkin ) { m_iBreakableSkin = iSkin; }
+	int				GetBreakableSkin( void ) { return m_iBreakableSkin; }
+	void			SetBreakableCount( int iCount ) { m_iBreakableCount = iCount; }
+	int				GetBreakableCount( void ) { return m_iBreakableCount; }
+	void			SetMaxBreakableSize( int iSize ) { m_iMaxBreakableSize = iSize; }
+	int				GetMaxBreakableSize( void ) { return m_iMaxBreakableSize; }
+	void			SetPropDataBlocksLOS( bool bBlocksLOS ) { m_bBlockLOSSetByPropData = true; SetBlocksLOS( bBlocksLOS ); }
+	void			SetPropDataIsAIWalkable( bool b ) { m_bIsWalkableSetByPropData = true; SetAIWalkable( b ); }
+	void			SetBasePropData( string_t iszBase ) { m_iszBasePropData = iszBase; }
+	string_t		GetBasePropData( void ) { return m_iszBasePropData; }
+	void			SetInteraction( propdata_interactions_t Interaction ) { m_iInteractions |= (1 << Interaction); }
+	void			RemoveInteraction( propdata_interactions_t Interaction ) { m_iInteractions &= ~(1 << Interaction); }
+	bool			HasInteraction( propdata_interactions_t Interaction ) { return ( m_iInteractions & (1 << Interaction) ) != 0; }
+	void			SetMultiplayerBreakMode( mp_break_t mode ) { m_mpBreakMode = mode; }
+	mp_break_t		GetMultiplayerBreakMode( void ) const { return m_mpBreakMode; }
+	int				GetMinHealthDamage( void ) { return m_iMinHealthDmg; }
+
+// derived by multiplayer phys props:
+	// TERROR: base prop_physics can be client-side etc
+	virtual void	SetPhysicsMode(int iMode) { m_iPhysicsMode = iMode; }
+	virtual int		GetPhysicsMode() { return m_iPhysicsMode; }
+
+	// Copy fade from another breakable prop
+	void CopyFadeFrom( CBreakableProp *pSource );
+
+	virtual void	OnSpawnBreakProp( CBreakableProp *pSpawnedProp) {}
+
+protected:
+
+	bool			UpdateHealth( int iNewHealth, CBaseEntity *pActivator );
+	virtual void	OnBreak( const Vector &vecVelocity, const AngularImpulse &angVel, CBaseEntity *pBreaker ) {}
+
+protected:
+
+	// TERROR: base prop_physics can be client-side etc
+	int				m_iPhysicsMode;
+
+	unsigned int	m_createTick;
+	float			m_flPressureDelay;
+	EHANDLE			m_hBreaker;
+
+	PerformanceMode_t m_PerformanceMode;
+
+	// Prop data storage
+	float			m_flDmgModBullet;
+	float			m_flDmgModClub;
+	float			m_flDmgModExplosive;
+	float			m_flDmgModFire;
+	string_t		m_iszPhysicsDamageTableName;
+	string_t		m_iszBreakableModel;
+	int				m_iBreakableSkin;
+	int				m_iBreakableCount;
+	int				m_iMaxBreakableSize;
+	string_t		m_iszBasePropData;	
+	int				m_iInteractions;
+	float			m_explodeDamage;
+	float			m_explodeRadius;
+
+	// Count of how many pieces we'll break into, custom or generic
+	int				m_iNumBreakableChunks;
+
+	void			SetEnableMotionPosition( const Vector &position, const QAngle &angles );
+	bool			GetEnableMotionPosition( Vector *pPosition, QAngle *pAngles );
+	void			ClearEnableMotionPosition();
+private:
+	CBaseEntity		*FindEnableMotionFixup();
+
+public:
+	virtual bool OnAttemptPhysGunPickup( CBasePlayer *pPhysGunUser, PhysGunPickup_t reason );
+	virtual void OnPhysGunPickup( CBasePlayer *pPhysGunUser, PhysGunPickup_t reason );
+	virtual void OnPhysGunDrop( CBasePlayer *pPhysGunUser, PhysGunDrop_t reason );
+	virtual AngularImpulse	PhysGunLaunchAngularImpulse();
+	virtual	CBasePlayer *HasPhysicsAttacker( float dt );
+	void SetPhysicsAttacker( CBasePlayer *pEntity, float flTime );
+	void	SetNoGhostCollisions( bool bEnable ) { m_noGhostCollision = bEnable; }
+
+#ifdef HL2_EPISODIC
+	void CreateFlare( float flLifetime );
+#endif //HL2_EPISODIC
+
+protected:
+	void CheckRemoveRagdolls();
+	
+private:
+	void InputEnablePhyscannonPickup( inputdata_t &inputdata );
+	void InputDisablePhyscannonPickup( inputdata_t &inputdata );
+
+	void InputEnablePuntSound( inputdata_t &inputdata ) { m_bUsePuntSound = true; }
+	void InputDisablePuntSound( inputdata_t &inputdata ) { m_bUsePuntSound = false; }
+
+	// Prevents fade scale from happening
+	void ForceFadeScaleToAlwaysVisible();
+	void RampToDefaultFadeScale();
+
+private:
+	enum PhysgunState_t
+	{
+		PHYSGUN_MUST_BE_DETACHED = 0,
+		PHYSGUN_IS_DETACHING,
+		PHYSGUN_CAN_BE_GRABBED,					
+		PHYSGUN_ANIMATE_ON_PULL,
+		PHYSGUN_ANIMATE_IS_ANIMATING,
+		PHYSGUN_ANIMATE_FINISHED,
+		PHYSGUN_ANIMATE_IS_PRE_ANIMATING,
+		PHYSGUN_ANIMATE_IS_POST_ANIMATING,
+	};
+
+	CHandle<CBasePlayer>	m_hPhysicsAttacker;
+	float					m_flLastPhysicsInfluenceTime;
+	bool					m_bBlockLOSSetByPropData;
+	bool					m_bIsWalkableSetByPropData;
+	bool					m_bOriginalBlockLOS;	// BlockLOS state before physgun pickup
+	char					m_nPhysgunState;		// Ripped-off state
+	COutputEvent			m_OnPhysCannonDetach;	// We've ripped it off!
+	COutputEvent			m_OnPhysCannonAnimatePreStarted;	// Started playing the pre-pull animation
+	COutputEvent			m_OnPhysCannonAnimatePullStarted;	// Player started the pull anim
+	COutputEvent			m_OnPhysCannonAnimatePostStarted;	// Started playing the post-pull animation
+	COutputEvent			m_OnPhysCannonPullAnimFinished; // We've had our pull anim finished, or the post-pull has finished if there is one
+	float					m_flDefaultFadeScale;	// Things may temporarily change the fade scale, but this is its steady-state condition
+
+	mp_break_t m_mpBreakMode;
+	explosion_t m_explosionType;					// TERROR
+	float m_explosionDelay;
+	string_t m_explosionBuildupSound;
+
+	EHANDLE					m_hLastAttacker;		// Last attacker that harmed me.
+	EHANDLE					m_hFlareEnt;
+	string_t				m_iszPuntSound;
+	CNetworkVar( bool, m_noGhostCollision );
+	bool					m_bUsePuntSound;
+protected:
+	CNetworkVar( bool, m_bClientPhysics );
+};
+
+// Spawnflags
+#define SF_DYNAMICPROP_USEHITBOX_FOR_RENDERBOX		64
+#define SF_DYNAMICPROP_NO_VPHYSICS					128
+#define SF_DYNAMICPROP_DISABLE_COLLISION			256
+
+//-----------------------------------------------------------------------------
+// Purpose: 
+//-----------------------------------------------------------------------------
+class CDynamicProp : public CBreakableProp, public IPositionWatcher
+{
+	DECLARE_CLASS( CDynamicProp, CBreakableProp );
+
+public:
+	DECLARE_SERVERCLASS();
+	DECLARE_DATADESC();
+
+	CDynamicProp();
+
+	void	Spawn( void );
+	bool	CreateVPhysics( void );
+	void	CreateBoneFollowers();
+	void	UpdateOnRemove( void );
+	void	AnimThink( void );
+	void	PropSetSequence( int nSequence );
+	void	OnRestore( void );
+	bool	OverridePropdata( void );
+	virtual void HandleAnimEvent( animevent_t *pEvent );
+
+	// baseentity - watch dynamic hierarchy updates
+	virtual void	SetParent( CBaseEntity* pNewParent, int iAttachment = -1 );
+	bool			TestCollision( const Ray_t &ray, unsigned int mask, trace_t& trace );
+
+	// breakable prop
+	virtual IPhysicsObject *GetRootPhysicsObjectForBreak();
+
+	// IPositionWatcher
+	virtual void NotifyPositionChanged( CBaseEntity *pEntity );
+
+	// Input handlers
+	void InputSetAnimation( inputdata_t &inputdata );
+	void InputSetDefaultAnimation( inputdata_t &inputdata );
+	void InputTurnOn( inputdata_t &inputdata );
+	void InputTurnOff( inputdata_t &inputdata );
+	void InputDisableCollision( inputdata_t &inputdata );
+	void InputEnableCollision( inputdata_t &inputdata );
+	void InputSetPlaybackRate( inputdata_t &inputdata );
+	void InputStartGlowing( inputdata_t &inputdata );
+	void InputStopGlowing( inputdata_t &inputdata );
+	void InputSetGlowOverride( inputdata_t &inputdata );
+	void InputSetGlowRange( inputdata_t &inputdata );
+
+	COutputEvent		m_pOutputAnimBegun;
+	COutputEvent		m_pOutputAnimOver;
+
+	string_t			m_iszDefaultAnim;
+
+	int					m_iGoalSequence;
+	int					m_iTransitionDirection;
+
+	// Random animations
+	bool				m_bRandomAnimator;
+	float				m_flNextRandAnim;
+	float				m_flMinRandAnimTime;
+	float				m_flMaxRandAnimTime;
+	short				m_nPendingSequence;
+
+	bool				m_bStartDisabled;
+	bool				m_bUpdateAttachedChildren;	// For props with children on attachment points, update their child touches as we animate
+
+	CNetworkVar( bool, m_bUseHitboxesForRenderBox );
+
+protected:
+	void FinishSetSequence( int nSequence );
+	void PropSetAnim( const char *szAnim );
+	bool ShouldSetCreateTime( inputdata_t &inputdata );
+	void BoneFollowerHierarchyChanged();
+
+	// Contained Bone Follower manager
+	CBoneFollowerManager	m_BoneFollowerManager;
+
+private:
+	int					m_iInitialGlowState;
+	int					m_nGlowRange;
+	int					m_nGlowRangeMin;
+	Color				m_glowColor;
+};
+
+//-----------------------------------------------------------------------------
+// Purpose: 
+//-----------------------------------------------------------------------------
+class CPhysicsProp : public CBreakableProp, public INavAvoidanceObstacle
+{
+	DECLARE_CLASS( CPhysicsProp, CBreakableProp );
+	DECLARE_SERVERCLASS();
+
+public:
+	~CPhysicsProp();
+	CPhysicsProp( void );
+
+	void Spawn( void );
+	void Precache();
+	bool CreateVPhysics( void );
+	bool OverridePropdata( void );
+
+	virtual void VPhysicsUpdate( IPhysicsObject *pPhysics );
+	virtual void VPhysicsCollision( int index, gamevcollisionevent_t *pEvent );
+
+	void InputWake( inputdata_t &inputdata );
+	void InputSleep( inputdata_t &inputdata );
+	void InputEnableMotion( inputdata_t &inputdata );
+	void InputDisableMotion( inputdata_t &inputdata );
+	void InputDisableFloating( inputdata_t &inputdata );
+	void InputStartGlowing( inputdata_t &inputdata );
+	void InputStopGlowing( inputdata_t &inputdata );
+	void InputSetGlowOverride( inputdata_t &inputdata );
+	void InputSetGlowRange( inputdata_t &inputdata );
+
+	void EnableMotion( void );
+	bool CanBePickedUpByPhyscannon( void );
+	void OnPhysGunPickup( CBasePlayer *pPhysGunUser, PhysGunPickup_t reason );
+	void OnPhysGunDrop( CBasePlayer *pPhysGunUser, PhysGunDrop_t reason );
+	void OnHitByTank( void );
+
+	bool GetPropDataAngles( const char *pKeyName, QAngle &vecAngles );
+	float GetCarryDistanceOffset( void );
+
+	int ObjectCaps();
+	void Use( CBaseEntity *pActivator, CBaseEntity *pCaller, USE_TYPE useType, float value );
+	bool ShouldDisableMotionOnFreeze( void );
+	virtual UsePriorityType GetUsePriority( CBaseEntity *pActivator )
+	{
+		if ( m_isCarryable )
+			return USE_PRIORITY_NORMAL;
+
+		return USE_PRIORITY_LOW;
+	}
+
+	void GetMassCenter( Vector *pMassCenter );
+	float GetMass() const;
+
+	int ExploitableByPlayer() const { return m_iExploitableByPlayer; }
+
+	void ClearFlagsThink( void );
+
+	virtual bool IsPotentiallyAbleToObstructNavAreas( void ) const;	// could we at some future time obstruct nav?
+	virtual float GetNavObstructionHeight( void ) const;			// height at which to obstruct nav areas
+	virtual bool CanObstructNavAreas( void ) const;					// can we obstruct nav right this instant?
+	virtual CBaseEntity *GetObstructingEntity( void ) { return this; }
+	virtual void OnNavMeshLoaded( void );
+	void NavThink( void );
+
+	virtual int OnTakeDamage( const CTakeDamageInfo &info );
+	int DrawDebugTextOverlays(void);
+	bool IsGib();
+	DECLARE_DATADESC();
+
+	// Specific interactions
+	void	HandleAnyCollisionInteractions( int index, gamevcollisionevent_t *pEvent );
+	bool	IsBreakableByPlayer() const { return m_breakableType == 0; }
+
+#ifdef PORTAL2
+	START_BRANCHING_SINGLETON_DEFINITION( CPhotoPlacementQuery )
+	{
+	public:
+		struct PropPlacementData_t
+		{
+			Vector	vecOffset;
+			QAngle	qAlignAngles;
+			bool	bAlignOnlyVertical;
+			bool	bAlignOnlyHorizontal;
+			bool	bPinned;
+		};
+
+		virtual bool GetPlacementPosition_NoHelper( CaptureInfo_t &captureInfo, CheckPlacementData_t &placementData, Vector &positionOut, QAngle &anglesOut );
+		bool GetPropPosition( PropPlacementData_t &propData, CaptureInfo_t &captureInfo, CheckPlacementData_t &placementData, Vector &positionOut, QAngle &anglesOut );
+		bool ValidSurface( const Vector &vecNormal, PropPlacementData_t &propData );
+		bool FindPlacementPosition( const Vector &vecEndPos, float flAxisLength, float flCounterAxisLength, const Vector &vecDirection, Vector *vecOut );
+
+	};
+	END_BRANCHING_SINGLETON_DEFINITION( CPhotoPlacementQuery );
+
+	string_t GetPhysOverrideScript( void ) { return m_iszOverrideScript; }
+	float GetMassScale( void ) { return m_massScale; }
+#endif // PORTAL2
+
+	// Brock H. - TR - 10/20/2009
+	// Added support for normal physics objects to 
+	// more correctly affect survivors when hit by the tank 
+	// (staggers, knockdowns, frustration, etc)
+	bool IsPotentialTankProjectile();
+	bool WasHitByTank() const;
+
+	virtual void OnSpawnBreakProp( CBreakableProp *pSpawnedProp);
+
+private:
+	// Compute impulse to apply to the enabled entity.
+	void ComputeEnablingImpulse( int index, gamevcollisionevent_t *pEvent );
+
+	COutputEvent m_MotionEnabled;
+	COutputEvent m_OnAwakened;
+	COutputEvent m_OnPhysGunPickup;
+	COutputEvent m_OnPhysGunPunt;
+	COutputEvent m_OnPhysGunOnlyPickup;
+	COutputEvent m_OnPhysGunDrop;
+	COutputEvent m_OnPlayerUse;
+	COutputEvent m_OnPlayerPickup;
+	COutputEvent m_OnOutOfWorld;
+	COutputEvent m_OnHitByTank;
+
+	float		m_massScale;
+	float		m_inertiaScale;
+	int			m_damageType;
+	string_t	m_iszOverrideScript;
+	int			m_damageToEnableMotion;
+	float		m_flForceToEnableMotion;
+	int			m_breakableType;	// TERROR: 0=breakable by everyone, 1=infected, 2=tank only
+
+	bool		m_bThrownByPlayer;
+	bool		m_bFirstCollisionAfterLaunch;
+	int			m_iExploitableByPlayer;
+	bool		m_bHasBeenAwakened;
+	float		m_fNextCheckDisableMotionContactsTime;
+
+	int			m_iInitialGlowState;
+	int			m_nGlowRange;
+	int			m_nGlowRangeMin;
+	Color		m_glowColor;
+
+protected:
+	CNetworkVar( bool, m_bAwake );
+	CNetworkVar( bool, m_hasTankGlow );
+	CNetworkVar( bool, m_isCarryable );	// client needs to know for helping hand etc
+
+	IntervalTimer m_tankHitTimer; 
+};
+
+
+// An interface so that objects parented to props can receive collision interaction events.
+enum parentCollisionInteraction_t
+{
+	COLLISIONINTER_PARENT_FIRST_IMPACT = 1,
+};
+
+
+abstract_class IParentPropInteraction
+{
+public:
+	virtual void OnParentCollisionInteraction( parentCollisionInteraction_t eType, int index, gamevcollisionevent_t *pEvent ) = 0;
+	virtual void OnParentPhysGunDrop( CBasePlayer *pPhysGunUser, PhysGunDrop_t Reason ) = 0;
+};
+
+
+// Used by prop_physics_create and the server benchmark.
+// pModelName should not include the "models/" prefix.
+CPhysicsProp* CreatePhysicsProp( const char *pModelName, const Vector &vTraceStart, const Vector &vTraceEnd, const IHandleEntity *pTraceIgnore, bool bRequireVCollide, const char *pClassName="physics_prop" );
+
+float GetBreakableDamage( const CTakeDamageInfo &inputInfo, IBreakableWithPropData *pProp = NULL );
+int PropBreakablePrecacheAll( string_t modelName );
+
+extern ConVar func_breakdmg_bullet;
+extern ConVar func_breakdmg_club;
+extern ConVar func_breakdmg_explosive;
+
+#ifdef PORTAL2
+bool UTIL_PropIsMotionDisabled( CBaseEntity *pObject );
+void UTIL_SetPropMotionDisabled( CBaseEntity *pObject );
+#endif // PORTAL2
+
+#endif // PROPS_H
